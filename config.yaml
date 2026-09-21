@@ -1,0 +1,124 @@
+# ============================================================
+# Worm Robot Tracking Pipeline Configuration
+# ============================================================
+
+# ------------------------------------------------------------
+# Input
+# ------------------------------------------------------------
+
+input:
+  # Folder containing input videos.
+  directory: "./data/input"
+
+  # Video extensions that should be processed.
+  extensions:
+    - ".mp4"
+    - ".avi"
+    - ".mov"
+    - ".mkv"
+
+
+# ------------------------------------------------------------
+# Output
+# ------------------------------------------------------------
+
+output:
+
+  # Final trajectory CSV files.
+  trajectory_csv_directory: "./data/trajectory/csv"
+
+  # Final trajectory videos.
+  trajectory_video_directory: "./data/trajectory/videos"
+
+  # Intermediate detector results.
+  #
+  # Set enabled: false if you do not want these files saved.
+  intermediate:
+    enabled: true
+
+    # Raw detection CSV.
+    detection_csv_directory: "./data/detection/csv"
+
+    # Video showing raw detections.
+    detection_video_directory: "./data/detection/videos"
+
+    # Arena/detection metadata JSON.
+    metadata_directory: "./data/detection/metadata"
+
+
+# ------------------------------------------------------------
+# Pipeline
+# ------------------------------------------------------------
+
+pipeline:
+
+  # Run the detector stage.
+  run_detection: true
+
+  # Run trajectory reconstruction.
+  run_trajectory: true
+
+  # If false, existing output files may be overwritten.
+  #
+  # If true, existing results are skipped.
+  skip_existing: false
+
+
+# ------------------------------------------------------------
+# Arena detection
+# ------------------------------------------------------------
+
+arena:
+
+  # Try to automatically detect the arena first.
+  auto_detect: true
+
+  # Number of frames to inspect while looking for the arena.
+  max_search_frames: 150
+
+  # If automatic detection fails, put the video into a
+  # manual-selection queue.
+  manual_selection_on_failure: true
+
+  # If false, videos whose arena cannot be selected are skipped.
+  # If true, the pipeline uses the full frame if manual
+  # selection is cancelled.
+  use_full_frame_on_manual_cancel: false
+
+  # Maximum height of the manually displayed frame.
+  manual_selection_display_height: 720
+
+
+# ------------------------------------------------------------
+# Detector settings
+# ------------------------------------------------------------
+
+detector:
+
+  mog_history: 300
+  mog_var_threshold: 12
+  mog_learning_rate: 0.002
+
+  min_blob_area: 200
+  max_blob_area: 20000
+
+  morph_kernel_size: 5
+
+  axis_line_length: 60
+
+  arena_real_width_cm: 30.5
+
+
+# ------------------------------------------------------------
+# Trajectory settings
+# ------------------------------------------------------------
+
+trajectory:
+
+  # Number of seconds of trailing path shown in final video.
+  trailing_path_seconds: 3.0
+
+  # Savitzky-Golay smoothing parameters.
+  smoothing:
+    window_length: 11
+    polyorder: 2
