@@ -26,6 +26,9 @@ def load_detection_data(csv_path, meta_path):
 def interpolate_and_smooth_data(df, window_length=11, polyorder=2):
     """
     Interpolate missing values and smooth the trajectory.
+
+    The processed values replace the original x_cm, y_cm,
+    and theta_deg columns.
     """
 
     df_clean = df.copy()
@@ -35,7 +38,7 @@ def interpolate_and_smooth_data(df, window_length=11, polyorder=2):
     df_clean["y_cm"] = pd.to_numeric(df_clean["y_cm"], errors="coerce")
     df_clean["theta_deg"] = pd.to_numeric(df_clean["theta_deg"], errors="coerce")
 
-    # Interpolate.
+    # Interpolate missing values.
     df_clean["x_cm"] = (
         df_clean["x_cm"]
         .interpolate(method="linear")
@@ -58,54 +61,44 @@ def interpolate_and_smooth_data(df, window_length=11, polyorder=2):
     )
 
     # If there were zero detections.
-    df_clean[
-        ["x_cm", "y_cm", "theta_deg"]
-    ] = df_clean[
-        ["x_cm", "y_cm", "theta_deg"]
-    ].fillna(0.0)
+    df_clean[["x_cm", "y_cm", "theta_deg"]] = (
+        df_clean[["x_cm", "y_cm", "theta_deg"]].fillna(0.0)
+    )
 
-    # Unwrap orientation.
+    # Unwrap orientation before smoothing.
     rad = np.radians(df_clean["theta_deg"].values)
-    unwrapped_rad = (np.unwrap(2 * rad) / 2.0)
+    unwrapped_rad = np.unwrap(2 * rad) / 2.0
+
     num_samples = len(df_clean)
 
     if num_samples < window_length:
-        window_length = num_samples if num_samples % 2 != 0 else num_samples - 1
+        window_length = (
+            num_samples if num_samples % 2 != 0 else num_samples - 1
+        )
 
+    # Smooth the trajectory.
     if window_length > polyorder and window_length >= 3:
-        df_clean[
-            "x_cm_smooth"
-        ] = savgol_filter(
+        df_clean["x_cm"] = savgol_filter(
             df_clean["x_cm"].values,
             window_length,
             polyorder,
         )
 
-        df_clean[
-            "y_cm_smooth"
-        ] = savgol_filter(
+        df_clean["y_cm"] = savgol_filter(
             df_clean["y_cm"].values,
             window_length,
             polyorder,
         )
 
-        smoothed_rad = (
-            savgol_filter(
-                unwrapped_rad,
-                window_length,
-                polyorder,
-            )
+        smoothed_rad = savgol_filter(
+            unwrapped_rad,
+            window_length,
+            polyorder,
         )
 
-        df_clean["theta_deg_smooth"] = np.degrees(smoothed_rad) % 180.0
-
-    else:
-        df_clean["x_cm_smooth"] = df_clean["x_cm"]
-        df_clean["y_cm_smooth"] = df_clean["y_cm"]
-        df_clean["theta_deg_smooth"] = df_clean["theta_deg"]
+        df_clean["theta_deg"] = np.degrees(smoothed_rad) % 180.0
 
     return df_clean
-
 
 # ============================================================
 # Rendering
@@ -241,8 +234,8 @@ def generate_trajectory(
 
     for _, row in df_smooth.iterrows():
         cx, cy = cm_to_pixel(
-            row["x_cm_smooth"],
-            row["y_cm_smooth"],
+            row["x_cm"],
+            row["y_cm"],
             arena_width_px,
             arena_real_width_cm,
         )
@@ -256,7 +249,7 @@ def generate_trajectory(
 
         row = df_smooth.iloc[frame_idx]
         cx, cy = pixel_centers[frame_idx]
-        theta = row["theta_deg_smooth"]
+        theta = row["theta_deg"]
         was_detected = bool(row["detected"])
 
         # Draw trajectory.
@@ -321,8 +314,8 @@ def generate_trajectory(
             frame,
             (
                 f"Pos: "
-                f"({row['x_cm_smooth']:.1f} cm, "
-                f"{row['y_cm_smooth']:.1f} cm)"
+                f"({row['x_cm']:.1f} cm, "
+                f"{row['y_cm']:.1f} cm)"
             ),
             (20, 65),
             cv2.FONT_HERSHEY_SIMPLEX,
@@ -365,35 +358,3 @@ def generate_trajectory(
         f"Trajectory CSV saved to: "
         f"{output_csv}"
     )
-
-
-# ============================================================
-# Optional Standalone CLI
-# ============================================================
-
-# if __name__ == "__main__":
-#     import argparse
-#     parser = argparse.ArgumentParser()
-#     parser.add_argument("-i", "--input-video", required=True)
-#     parser.add_argument("-j", "--input-csv", required=True)
-#     parser.add_argument("-m", "--input-meta", required=True)
-#     parser.add_argument("-o", "--output-video", required=True)
-#     parser.add_argument("-c", "--output-csv", required=True)
-#     args = parser.parse_args()
-
-#     config = {
-#         "trailing_path_seconds": 3.0,
-#         "smoothing": {
-#             "window_length": 11,
-#             "polyorder": 2,
-#         },
-#     }
-
-#     generate_trajectory(
-#         input_video=args.input_video,
-#         input_csv=args.input_csv,
-#         input_meta=args.input_meta,
-#         output_video=args.output_video,
-#         output_csv=args.output_csv,
-#         trajectory_config=config,
-#     )

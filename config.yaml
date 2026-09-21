@@ -71,7 +71,7 @@ pipeline:
 arena:
 
   # Try to automatically detect the arena first.
-  auto_detect: true
+  auto_detect: false
 
   # Number of frames to inspect while looking for the arena.
   max_search_frames: 150
