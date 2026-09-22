@@ -83,9 +83,8 @@ output:
     metadata_directory: "./data/detection/metadata"
 
 pipeline:
-  stages:
-    - detection
-    - trajectory
+    run_detection: true
+    run_trajectory: true
 
   skip_existing: false
 ```
@@ -120,9 +119,8 @@ The stages are controlled by:
 
 ```yaml
 pipeline:
-  stages:
-    - detection
-    - trajectory
+  run_detection: true
+  run_trajectory: true
 ```
 
 Run both detection and trajectory processing:
