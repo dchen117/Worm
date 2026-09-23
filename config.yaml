@@ -131,7 +131,7 @@ prediction:
   predictors:
     - stationary
     - constant_velocity
-    # - ekf
+    - ekf
 
   horizon_seconds: 1.0
 

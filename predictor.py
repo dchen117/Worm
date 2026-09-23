@@ -11,6 +11,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ekf import *
+
 
 def _get_position_orientation_columns(df):
     """
@@ -135,12 +137,41 @@ def constant_velocity_predictor(
 
     return x_pred, y_pred, theta_pred
 
+
+
+
+
 def EKF(
     trajectory: pd.DataFrame,
     start_frame: int,
+    arena_real_width_cm=30.5
 ) -> tuple[float, float, float]:
-    # implement EKF predictor here
-    ekf_x = ekf_y = ekf_theta = None
+    # initial state and covariance estimates
+    var_x = 1
+    var_y = 1
+    var_theta = 1
+    initial_obs = trajectory.loc[0, ["x_cm", "y_cm", "theta_deg"]].to_numpy()
+
+    x = np.array([initial_obs[0], initial_obs[1], initial_obs[2], 0.0, 0.0]).reshape(5, 1)
+
+    p_0 = np.array([var_x, var_y, var_theta, 100, 100])
+    P_0 = np.diag(p_0)
+    print(P_0)
+
+    R = np.diag([2.0**2, 2.0**2, 5.0**2])
+
+    Q = np.diag([0.1**2, 0.1**2, 0.5**2, 1.0**2, 1.0**2])
+
+    x_future = predict_endpoint(trajectory, start_frame, x, P_0, Q, R, np.array([[1, 0, 0, 0, 0],
+                                                                            [0, 1, 0, 0, 0],
+                                                                            [0, 0, 1, 0, 0]]))
+
+    # ekf_x = x_future[0, 0]
+    ekf_x = np.clip(x_future[0, 0], 0, arena_real_width_cm)
+    # ekf_y = x_future[1, 0]
+    ekf_y = np.clip(x_future[1, 0], 0, arena_real_width_cm)
+    ekf_theta = x_future[2, 0]
+    
     return ekf_x, ekf_y, ekf_theta
 
 def predict_all(
