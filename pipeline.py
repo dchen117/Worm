@@ -1,151 +1,88 @@
 from pathlib import Path
 import argparse
-import yaml
 import cv2
+import yaml
 
-from detector import (
-    detect,
-    detect_arena_multi_frame,
-    select_arena_manually,
-)
-
+from detector import detect, detect_arena_multi_frame, select_arena_manually
 from trajectory import generate_trajectory
+from evaluation import evaluate
 
-
-# ============================================================
-# Configuration
-# ============================================================
 
 def load_config(path):
-    """
-    Load YAML configuration.
-    """
-
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
 
-# ============================================================
-# Paths
-# ============================================================
-
 def ensure_directories(config):
-    """
-    Create configured output directories.
-    """
-
-    output_config = config["output"]
-
+    output = config["output"]
     directories = [
-        output_config["trajectory_csv_directory"],
-        output_config["trajectory_video_directory"],
+        output["trajectory_csv_directory"],
+        output["trajectory_video_directory"],
     ]
 
-    intermediate = output_config.get("intermediate", {})
-
+    intermediate = output.get("intermediate", {})
     if intermediate.get("enabled", False):
-        directories.extend(
-            [
-                intermediate["detection_csv_directory"],
-                intermediate["detection_video_directory"],
-                intermediate["metadata_directory"],
-            ]
-        )
+        directories += [
+            intermediate["detection_csv_directory"],
+            intermediate["detection_video_directory"],
+            intermediate["metadata_directory"],
+        ]
+
+    prediction = config.get("prediction", {})
+    if "prediction" in config.get("pipeline", {}).get("stages", []):
+        directories.append(prediction["output_directory"])
+        directories.append(prediction["annotation_directory"])
 
     for directory in directories:
-
-        Path(directory).mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        Path(directory).mkdir(parents=True, exist_ok=True)
 
 
 def find_input_videos(config):
-    """
-    Find all supported videos in the configured input directory.
-    """
-
     input_config = config["input"]
-    input_directory = Path(input_config["directory"])
+    directory = Path(input_config["directory"])
 
-    extensions = {extension.lower() for extension in input_config["extensions"]}
+    if not directory.exists():
+        raise FileNotFoundError(f"Input directory does not exist: {directory}")
 
-    if not input_directory.exists():
+    extensions = {x.lower() for x in input_config["extensions"]}
+    return sorted(
+        p for p in directory.iterdir()
+        if p.is_file() and p.suffix.lower() in extensions
+    )
+
+
+def find_annotation_files(config):
+    directory = Path(config["prediction"]["annotation_directory"])
+
+    if not directory.exists():
         raise FileNotFoundError(
-            f"Input directory does not exist: "
-            f"{input_directory}"
+            f"Annotation directory does not exist: {directory}"
         )
 
-    videos = [
-        path
-        for path in input_directory.iterdir()
-        if (
-            path.is_file()
-            and path.suffix.lower()
-            in extensions
-        )
-    ]
+    return sorted(p for p in directory.iterdir() if p.is_file() and p.suffix.lower() == ".csv")
 
-    return sorted(videos)
-
-
-# ============================================================
-# Arena Discovery
-# ============================================================
 
 def get_first_frame(video_path):
-    """
-    Get the first frame of a video.
-    """
-
     cap = cv2.VideoCapture(str(video_path))
-
     if not cap.isOpened():
         return None
-
     ret, frame = cap.read()
     cap.release()
-
-    if not ret:
-        return None
-
-    return frame
+    return frame if ret else None
 
 
 def automatically_find_arenas(videos, config):
-    """
-    First pass:
-
-    Try to automatically determine the arena for every video.
-
-    Returns:
-        arenas
-        manual_queue
-
-    arenas:
-        {Path: (x0, y0, x1, y1)}
-
-    manual_queue:
-        [Path, ...]
-    """
-
     arenas = {}
     manual_queue = []
     arena_config = config["arena"]
     max_frames = arena_config["max_search_frames"]
 
-    print()
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print("ARENA DETECTION")
     print("=" * 60)
 
     for index, video_path in enumerate(videos, start=1):
-        print()
-        print(
-            f"[{index}/{len(videos)}] "
-            f"{video_path.name}"
-        )
-
+        print(f"\n[{index}/{len(videos)}] {video_path.name}")
         cap = cv2.VideoCapture(str(video_path))
 
         if not cap.isOpened():
@@ -156,11 +93,10 @@ def automatically_find_arenas(videos, config):
         result = None
         if arena_config["auto_detect"]:
             result = detect_arena_multi_frame(cap, max_frames=max_frames)
-
         cap.release()
 
         if result is not None:
-            x0, y0, x1, y1, width = result
+            x0, y0, x1, y1, _ = result
             arenas[video_path] = (x0, y0, x1, y1)
             print("  ✓ Automatic arena detection succeeded.")
         else:
@@ -170,52 +106,20 @@ def automatically_find_arenas(videos, config):
     return arenas, manual_queue
 
 
-# ============================================================
-# Manual Arena Selection
-# ============================================================
-
 def manually_select_failed_arenas(manual_queue, arenas, config):
-    """
-    Second pass:
-
-    Open each video for which automatic detection failed.
-
-    The user can manually select the arena.
-
-    This happens AFTER all automatic detection attempts have
-    finished.
-    """
-
     arena_config = config["arena"]
 
-    if not manual_queue:
+    if not manual_queue or not arena_config["manual_selection_on_failure"]:
         return
 
-    if not arena_config["manual_selection_on_failure"]:
-        print()
-        print(
-            "Manual selection disabled."
-        )
-        return
-
-    print()
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print("MANUAL ARENA SELECTION")
     print("=" * 60)
 
-    print(
-        f"{len(manual_queue)} video(s) "
-        f"require manual arena selection."
-    )
-
     for index, video_path in enumerate(manual_queue, start=1):
-        print()
-        print(
-            f"[{index}/{len(manual_queue)}] "
-            f"{video_path.name}"
-        )
-
+        print(f"\n[{index}/{len(manual_queue)}] {video_path.name}")
         frame = get_first_frame(video_path)
+
         if frame is None:
             print("  ERROR: Could not read video.")
             continue
@@ -228,173 +132,164 @@ def manually_select_failed_arenas(manual_queue, arenas, config):
         if result is None:
             print("  Manual selection cancelled.")
             if arena_config["use_full_frame_on_manual_cancel"]:
-                frame_h, frame_w = (frame.shape[:2])
-                arenas[video_path] = (0, 0, frame_w, frame_h)
+                h, w = frame.shape[:2]
+                arenas[video_path] = (0, 0, w, h)
                 print("  Using full frame.")
-            else:
-                print("  Video will be skipped.")
             continue
 
-        x0, y0, x1, y1, width = result
-
+        x0, y0, x1, y1, _ = result
         arenas[video_path] = (x0, y0, x1, y1)
 
-        print(
-            f"  ✓ Manual arena selected: "
-            f"X=[{x0}, {x1}], "
-            f"Y=[{y0}, {y1}]"
-        )
-
-
-# ============================================================
-# Output Paths
-# ============================================================
 
 def output_paths(video_path, config):
-    """
-    Generate all output paths for one input video.
-    """
-
     stem = video_path.stem
-    output_config = config["output"]
+    output = config["output"]
 
-    trajectory_csv = (
-        Path(output_config["trajectory_csv_directory"])
-        / f"{stem}_trajectory.csv"
-    )
-
-    trajectory_video = (
-        Path(output_config["trajectory_video_directory"])
-        / f"{stem}_trajectory.mp4"
-    )
-
-    detection_csv = None
-    detection_video = None
-    metadata = None
-
-    intermediate = output_config.get("intermediate", {})
-    if intermediate.get("enabled", False):
-        detection_csv = (
-            Path(intermediate["detection_csv_directory"])
-            / f"{stem}_detection.csv"
-        )
-
-        detection_video = (
-            Path(intermediate["detection_video_directory"])
-            / f"{stem}_detection.mp4"
-        )
-
-        metadata = (
-            Path(intermediate["metadata_directory"])
-            / f"{stem}_metadata.json"
-        )
-
-    return {
-        "trajectory_csv": trajectory_csv,
-        "trajectory_video": trajectory_video,
-        "detection_csv": detection_csv,
-        "detection_video": detection_video,
-        "metadata": metadata,
+    paths = {
+        "trajectory_csv": Path(output["trajectory_csv_directory"]) / f"{stem}_trajectory.csv",
+        "trajectory_video": Path(output["trajectory_video_directory"]) / f"{stem}_trajectory.mp4",
+        "detection_csv": None,
+        "detection_video": None,
+        "metadata": None,
     }
 
+    intermediate = output.get("intermediate", {})
+    if intermediate.get("enabled", False):
+        paths["detection_csv"] = (
+            Path(intermediate["detection_csv_directory"]) / f"{stem}_detection.csv"
+        )
+        paths["detection_video"] = (
+            Path(intermediate["detection_video_directory"]) / f"{stem}_detection.mp4"
+        )
+        paths["metadata"] = (
+            Path(intermediate["metadata_directory"]) / f"{stem}_metadata.json"
+        )
 
-# ============================================================
-# Processing
-# ============================================================
+    return paths
+
+
+def run_detection(video_path, arena_box, config, paths):
+    intermediate = config["output"].get("intermediate", {})
+    persistent = intermediate.get("enabled", False)
+
+    if persistent:
+        detection_csv = paths["detection_csv"]
+        metadata = paths["metadata"]
+        detection_video = paths["detection_video"]
+    else:
+        temp = Path(".pipeline_tmp")
+        temp.mkdir(exist_ok=True)
+        detection_csv = temp / f"{video_path.stem}_detection.csv"
+        metadata = temp / f"{video_path.stem}_metadata.json"
+        detection_video = None
+
+    detect(
+        input_video=video_path,
+        output_video=detection_video,
+        output_csv=detection_csv,
+        output_meta=metadata,
+        arena_box=arena_box,
+        detector_config=config["detector"],
+    )
+
+    return detection_csv, metadata, persistent
+
+def run_predictions(config):
+    prediction = config["prediction"]
+    annotation_files = find_annotation_files(config)
+    trajectory_dir = Path(config["output"]["trajectory_csv_directory"])
+    arena_real_width_cm = config["detector"]["arena_real_width_cm"]
+
+    successful = skipped = 0
+
+    print("\n" + "=" * 60)
+    print("PREDICTION / EVALUATION")
+    print("=" * 60)
+
+    for annotation_path in annotation_files:
+        stem = annotation_path.stem.removesuffix("_test")
+        trajectory_path = trajectory_dir / f"{stem}_trajectory.csv"
+
+        if not trajectory_path.exists():
+            print(
+                f"Skipping {annotation_path.name}: "
+                f"no matching trajectory CSV."
+            )
+            skipped += 1
+            continue
+
+        try:
+            output_directory = Path(prediction["output_directory"]) / stem
+
+            evaluate(
+                trajectory_csv=trajectory_path,
+                annotations_csv=annotation_path,
+                output_directory=output_directory,
+                fps=prediction["fps"],
+                predictors=prediction.get(
+                    "predictors",
+                    ["stationary", "constant_velocity"],
+                ),
+                horizon_seconds=prediction.get("horizon_seconds", 1.0),
+                velocity_window_seconds=prediction.get(
+                    "velocity_window_seconds", 0.5
+                ),
+                arena_real_width_cm=arena_real_width_cm,
+            )
+
+            print(f"Evaluated: {annotation_path.name}")
+            successful += 1
+
+        except Exception as exc:
+            print(f"ERROR evaluating {annotation_path.name}:")
+            print(exc)
+            skipped += 1
+
+    print(f"\nSuccessful: {successful}")
+    print(f"Skipped/failed: {skipped}")
 
 def process_video(video_path, arena_box, config):
-    """
-    Run detector and trajectory stages for one video.
-    """
-
+    stages = config["pipeline"]["stages"]
     paths = output_paths(video_path, config)
-    pipeline_config = config["pipeline"]
-    intermediate = config["output"].get("intermediate", {})
-    skip_existing = pipeline_config["skip_existing"]
-    detection_enabled = intermediate.get("enabled", False)
+    skip_existing = config["pipeline"].get("skip_existing", False)
 
-    print()
-    print("=" * 60)
-    print(
-        f"PROCESSING: {video_path.name}"
-    )
+    print("\n" + "=" * 60)
+    print(f"PROCESSING: {video_path.name}")
     print("=" * 60)
 
-    # --------------------------------------------------------
-    # Detector
-    # --------------------------------------------------------
+    detection_csv = paths["detection_csv"]
+    metadata = paths["metadata"]
+    persistent_detection = config["output"].get("intermediate", {}).get("enabled", False)
 
-    if pipeline_config["run_detection"]:
+    if "detection" in stages:
         if (
             skip_existing
-            and paths["detection_csv"] is not None
-            and paths["metadata"] is not None
+            and persistent_detection
             and paths["detection_csv"].exists()
             and paths["metadata"].exists()
         ):
+            detection_csv, metadata = paths["detection_csv"], paths["metadata"]
             print("Detection outputs already exist.")
         else:
-            if not detection_enabled:
-                # We still need a temporary CSV and metadata
-                # because trajectory depends on them.
-                #
-                # These are deleted after trajectory generation.
-                temporary_directory = (Path(".pipeline_tmp"))
-                temporary_directory.mkdir(exist_ok=True)
-                detection_csv = temporary_directory / f"{video_path.stem}_detection.csv"
-                metadata = temporary_directory / f"{video_path.stem}_metadata.json"
-                detection_video = None
-            else:
-                detection_csv = paths["detection_csv"]
-                metadata = paths["metadata"]
-                detection_video = paths["detection_video"]
-
-            detect(
-                input_video=video_path,
-                output_video=detection_video,
-                output_csv=detection_csv,
-                output_meta=metadata,
-                arena_box=arena_box,
-                detector_config=config["detector"],
+            detection_csv, metadata, persistent_detection = run_detection(
+                video_path, arena_box, config, paths
             )
-    else:
-        # If detector is disabled, the pipeline expects
-        # existing intermediate files.
-        detection_csv = paths["detection_csv"]
-        metadata = paths["metadata"]
 
+    elif "trajectory" in stages:
         if detection_csv is None or metadata is None:
-
             raise RuntimeError(
-                "run_detection is false, but "
-                "intermediate detection outputs "
-                "are disabled."
+                "Trajectory stage requires existing detection CSV and metadata."
             )
+        if not detection_csv.exists() or not metadata.exists():
+            raise FileNotFoundError("Required detection outputs do not exist.")
 
-        if not detection_csv.exists():
-            raise FileNotFoundError(
-                f"Detection CSV not found: "
-                f"{detection_csv}"
-            )
-
-        if not metadata.exists():
-            raise FileNotFoundError(
-                f"Metadata not found: "
-                f"{metadata}"
-            )
-
-    # --------------------------------------------------------
-    # Trajectory
-    # --------------------------------------------------------
-
-    if pipeline_config["run_trajectory"]:
+    if "trajectory" in stages:
         if (
             skip_existing
             and paths["trajectory_csv"].exists()
             and paths["trajectory_video"].exists()
         ):
             print("Trajectory outputs already exist.")
-
         else:
             generate_trajectory(
                 input_video=video_path,
@@ -405,28 +300,25 @@ def process_video(video_path, arena_box, config):
                 trajectory_config=config["trajectory"],
             )
 
-    # --------------------------------------------------------
-    # Cleanup temporary detection outputs.
-    # --------------------------------------------------------
+    if "detection" in stages and not persistent_detection:
+        detection_csv.unlink(missing_ok=True)
+        metadata.unlink(missing_ok=True)
 
-    if not detection_enabled and pipeline_config["run_detection"]:
-        try:
-            detection_csv.unlink(missing_ok=True)
-            metadata.unlink(missing_ok=True)
-        except Exception:
-            pass
-
-
-# ============================================================
-# Main Pipeline
-# ============================================================
 
 def run_pipeline(config_path="config.yaml"):
-    """
-    Execute the complete Worm pipeline.
-    """
-
     config = load_config(config_path)
+    stages = config["pipeline"]["stages"]
+
+    valid_stages = {"detection", "trajectory", "prediction"}
+    invalid = set(stages) - valid_stages
+    if invalid:
+        raise ValueError(f"Unknown pipeline stages: {sorted(invalid)}")
+
+    if "trajectory" in stages and "detection" not in stages:
+        print("Using existing detection outputs.")
+    if "prediction" in stages and "trajectory" not in stages:
+        print("Using existing trajectory outputs.")
+
     ensure_directories(config)
     videos = find_input_videos(config)
 
@@ -434,96 +326,51 @@ def run_pipeline(config_path="config.yaml"):
         print("No input videos found.")
         return
 
-    print()
-    print("=" * 60)
-    print("WORM ROBOT TRACKING PIPELINE")
-    print("=" * 60)
+    arenas = {}
+    if "detection" in stages:
+        arenas, manual_queue = automatically_find_arenas(videos, config)
+        manually_select_failed_arenas(manual_queue, arenas, config)
 
-    print(f"Found {len(videos)} video(s).")
+    successful = skipped = 0
 
-    # --------------------------------------------------------
-    # Pass 1:
-    # Automatically find arenas for every video.
-    # --------------------------------------------------------
+    if "detection" in stages or "trajectory" in stages:
+        print("\n" + "=" * 60)
+        print("PROCESSING VIDEOS")
+        print("=" * 60)
 
-    arenas, manual_queue = automatically_find_arenas(videos, config)
+        for video_path in videos:
+            if "detection" in stages and video_path not in arenas:
+                print(f"\nSkipping {video_path.name}: no arena available.")
+                skipped += 1
+                continue
 
-    # --------------------------------------------------------
-    # Pass 2:
-    # Manually resolve failures.
-    # --------------------------------------------------------
+            try:
+                arena = arenas.get(video_path)
+                process_video(video_path, arena, config)
+                successful += 1
+            except Exception as exc:
+                print(f"\nERROR processing {video_path.name}:")
+                print(exc)
+                skipped += 1
 
-    manually_select_failed_arenas(manual_queue, arenas, config)
+        print("\n" + "=" * 60)
+        print("VIDEO PROCESSING COMPLETE")
+        print("=" * 60)
+        print(f"Successful: {successful}")
+        print(f"Skipped/failed: {skipped}")
+        print(f"Total videos: {len(videos)}")
 
-    # --------------------------------------------------------
-    # Process videos whose arenas are known.
-    # --------------------------------------------------------
+    if "prediction" in stages:
+        run_predictions(config)
 
-    print()
-    print("=" * 60)
-    print("PROCESSING VIDEOS")
-    print("=" * 60)
-
-    successful = 0
-    skipped = 0
-
-    for video_path in videos:
-        if video_path not in arenas:
-            print()
-            print(
-                f"Skipping {video_path.name}: "
-                f"no arena available."
-            )
-            skipped += 1
-            continue
-
-        try:
-            process_video(video_path, arenas[video_path], config)
-            successful += 1
-        except Exception as exc:
-            print()
-            print(
-                f"ERROR processing "
-                f"{video_path.name}:"
-            )
-            print(exc)
-            skipped += 1
-
-    # --------------------------------------------------------
-    # Summary
-    # --------------------------------------------------------
-
-    print()
-    print("=" * 60)
+    print("\n" + "=" * 60)
     print("PIPELINE COMPLETE")
     print("=" * 60)
-    print(f"Successful: {successful}")
-    print(f"Skipped/failed: {skipped}")
-    print(f"Total videos: {len(videos)}")
 
-
-# ============================================================
-# CLI
-# ============================================================
 
 def main():
-    parser = argparse.ArgumentParser(
-        description=(
-            "Run the complete Worm "
-            "robot tracking pipeline."
-        )
-    )
-
-    parser.add_argument(
-        "-c",
-        "--config",
-        default="config.yaml",
-        help=(
-            "Path to YAML configuration "
-            "file."
-        ),
-    )
-
+    parser = argparse.ArgumentParser(description="Run the Worm robot tracking pipeline.")
+    parser.add_argument("-c", "--config", default="config.yaml")
     args = parser.parse_args()
     run_pipeline(args.config)
 

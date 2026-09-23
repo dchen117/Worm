@@ -51,12 +51,11 @@ output:
 # ------------------------------------------------------------
 
 pipeline:
-
-  # Run the detector stage.
-  run_detection: true
-
-  # Run trajectory reconstruction.
-  run_trajectory: true
+  # comment out any stage to skip it
+  stages:
+    # - detection
+    # - trajectory
+    - prediction
 
   # If false, existing output files may be overwritten.
   #
@@ -122,3 +121,23 @@ trajectory:
   smoothing:
     window_length: 11
     polyorder: 2
+
+
+# ------------------------------------------------------------
+# Predictor settings
+# ------------------------------------------------------------
+
+prediction:
+  horizon_seconds: 1.0
+
+  # Window used to estimate the constant velocity.
+  velocity_window_seconds: 0.5
+
+  # Manual endpoint annotations.
+  annotation_directory: "./data/evaluation/annotations"
+
+  # Outputs.
+  output_directory: "./data/evaluation"
+
+  # Video frame rate.
+  fps: 30.0
