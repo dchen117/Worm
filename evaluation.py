@@ -26,6 +26,7 @@ PREDICTOR_COLUMNS = {
         "constant_velocity_y",
         "constant_velocity_theta",
     ),
+    "ekf": ("ekf_x", "ekf_y", "ekf_theta")
 }
 
 
@@ -172,32 +173,6 @@ def save_summary(results, output_path, predictors):
     make_summary_table(results, predictors).to_csv(summary_path, index=False)
     return summary_path
 
-
-# def plot_errors(results, predictors, metric, ylabel, title, output_path):
-#     output_path = Path(output_path)
-#     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-#     x = np.arange(len(results))
-#     plt.figure(figsize=(10, 5))
-
-#     for predictor in predictors:
-#         plt.plot(
-#             x,
-#             results[f"{predictor}_{metric}_error"],
-#             'o',
-#             label=predictor.replace("_", " ").title(),
-#         )
-
-#     plt.xlabel("Evaluation point")
-#     plt.ylabel(ylabel)
-#     plt.title(title)
-#     if metric == "angle":
-#         plt.ylim(0, 90)
-#     plt.legend()
-#     plt.grid(True, alpha=0.3)
-#     plt.tight_layout()
-#     plt.savefig(output_path, dpi=200)
-#     plt.close()
 
 def plot_errors(results, predictors, metric, ylabel, title, output_path):
     output_path = Path(output_path)

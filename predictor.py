@@ -56,7 +56,7 @@ def _valid_history(
 def stationary_predictor(
     trajectory: pd.DataFrame,
     start_frame: int,
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     """
     Stationary baseline.
 
@@ -80,7 +80,7 @@ def constant_velocity_predictor(
     horizon_seconds: float = 1.0,
     velocity_window_seconds: float = 0.5,
     arena_real_width_cm=30.5,
-) -> tuple[float, float]:
+) -> tuple[float, float, float]:
     """
     Constant-velocity baseline.
 
@@ -135,6 +135,13 @@ def constant_velocity_predictor(
 
     return x_pred, y_pred, theta_pred
 
+def EKF(
+    trajectory: pd.DataFrame,
+    start_frame: int,
+) -> tuple[float, float, float]:
+    # implement EKF predictor here
+    ekf_x = ekf_y = ekf_theta = None
+    return ekf_x, ekf_y, ekf_theta
 
 def predict_all(
     trajectory: pd.DataFrame,
@@ -161,6 +168,11 @@ def predict_all(
         arena_real_width_cm=arena_real_width_cm,
     )
 
+    ekf_x, ekf_y, ekf_theta = EKF(
+        trajectory,
+        start_frame,
+    )
+
     return {
         "stationary_x": stationary_x,
         "stationary_y": stationary_y,
@@ -168,4 +180,7 @@ def predict_all(
         "constant_velocity_x": cv_x,
         "constant_velocity_y": cv_y,
         "constant_velocity_theta": cv_theta,
+        "ekf_x": ekf_x,
+        "ekf_y": ekf_y,
+        "ekf_theta": ekf_theta,
     }
