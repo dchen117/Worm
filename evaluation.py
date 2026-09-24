@@ -377,7 +377,7 @@ def evaluate(
     if not results.empty:
         plot_trajectory_prediction(
             trajectory=trajectory,
-            result_row=results.iloc[0],
+            result_row=results.iloc[-1],
             predictors=list(predictors),
             output_path=output_directory / "prediction_example.png",
             fps=fps,

@@ -19,9 +19,11 @@ Worm/
     │   ├── csv/
     │   ├── videos/
     │   └── metadata/
-    └── trajectory/
-        ├── csv/
-        └── videos/
+    ├── trajectory/
+    │   ├── csv/
+    │   └── videos/
+    └── evaluation/
+        └── annotations/
 ```
 
 The output directories can be changed in `config.yaml`.
@@ -83,8 +85,10 @@ output:
     metadata_directory: "./data/detection/metadata"
 
 pipeline:
-    run_detection: true
-    run_trajectory: true
+    stages:
+      - detection
+      - trajectory
+      - prediction
 
   skip_existing: false
 ```
@@ -119,35 +123,45 @@ The stages are controlled by:
 
 ```yaml
 pipeline:
-  run_detection: true
-  run_trajectory: true
+  stages:
+    - detection
+    - trajectory
+    - prediction
 ```
 
 Run both detection and trajectory processing:
 
 ```yaml
 pipeline:
-  run_detection: true
-  run_trajectory: true
-```
-
-Run detection only:
-
-```yaml
-pipeline:
-  run_detection: true
-  run_trajectory: false
+  stages:
+    - detection
+    - trajectory
+    # - prediction
 ```
 
 Run trajectory processing using existing detection results:
 
 ```yaml
 pipeline:
-  run_detection: false
-  run_trajectory: true
+  stages:
+    # - detection
+    - trajectory
+    # - prediction
 ```
 
 When running the trajectory stage by itself, the corresponding detection outputs must already exist.
+
+Run prediction using trajectory results and manually annotated endpoints:
+
+```yaml
+pipeline:
+  stages:
+    # - detection
+    # - trajectory
+    - prediction
+```
+
+When running prediction stage by itself, the trajectory results and manually annotated endpoints must already exist.
 
 ## Arena Selection
 
