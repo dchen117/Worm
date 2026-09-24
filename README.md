@@ -161,7 +161,7 @@ pipeline:
     - prediction
 ```
 
-When running prediction stage by itself, the trajectory results and manually annotated endpoints must already exist.
+When running prediction stage by itself, the trajectory results and manually annotated endpoints must already exist. The manually annotated endpoints can be collected with annotate.py.
 
 ## Arena Selection
 
